@@ -1,0 +1,79 @@
+target-version = "py312"
+line-length = 100
+indent-width = 4
+
+src = ["src", "tests"]
+
+exclude = [
+    ".git",
+    ".idea",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "A",
+    "C4",
+    "DTZ",
+    "T10",
+    "T20",
+    "RET",
+    "SIM",
+    "ARG",
+    "PTH",
+    "ERA",
+    "PL",
+    "RUF",
+    "ASYNC",
+    "S",
+]
+
+ignore = [
+    "E501",
+    "S101",
+    "PLR2004",
+    "RET504",
+    "RUF002",
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+[lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",
+    "ARG001",
+    "PLR2004",
+]
+"src/**/__init__.py" = [
+    "F401",
+]
+
+[lint.isort]
+known-first-party = ["src"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = 100
