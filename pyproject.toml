@@ -5,7 +5,10 @@ description = "Telegram bot template"
 requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.31.0",
+    "bs4>=0.0.2",
+    "lxml>=6.1.3",
     "pydantic-settings>=2.15.0",
+    "requests>=2.34.2",
 ]
 
 [dependency-groups]
