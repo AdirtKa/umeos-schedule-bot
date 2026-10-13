@@ -62,12 +62,42 @@ docker compose logs -f bot
 ```
 
 Данные, которые должны переживать пересоздание контейнера, сохраняй в `/app/data`.
+В `docker-compose.yml` эта папка привязана к папке на сервере:
+
+```text
+./data -> /app/data
+```
+
+Путь на сервере можно поменять через `.env`:
+
+```env
+BOT_DATA_DIR=./data
+```
 
 Например:
 
 ```text
-/app/data/schedule.json
+/app/data/bot.db
+/app/data/schedules
+/app/data/access.log
+/app/data/error.log
 ```
+
+Чтобы не потерять данные на сервере:
+
+1. Не удаляй папку из `BOT_DATA_DIR`.
+2. Перед `docker compose down -v` сделай бэкап папки `data`.
+3. Если раньше использовался Docker volume `bot_data`, сначала скопируй его в папку:
+
+```bash
+docker compose down
+mkdir -p data
+docker volume ls | grep bot_data
+docker run --rm -v ИМЯ_VOLUME:/from -v "$PWD/data:/to" alpine sh -c "cp -a /from/. /to/"
+docker compose up -d --build
+```
+
+`ИМЯ_VOLUME` обычно похоже на `umeos-schedule-bot_bot_data`, но точное имя лучше взять из `docker volume ls`.
 
 ## Проверки
 
