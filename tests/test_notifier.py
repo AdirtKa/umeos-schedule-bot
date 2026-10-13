@@ -104,3 +104,46 @@ async def test_notifier_waits_until_reminder_time(
     await notifier_service.send_due_notifications(bot)
 
     assert bot.messages == []
+
+
+async def test_notifier_sends_multiple_reminders_for_one_chat(
+    tmp_path: Path,
+    schedule_html: str,
+) -> None:
+    notifier_service, bot, chat_settings_repository = create_notifier(
+        tmp_path,
+        schedule_html,
+        datetime(2026, 10, 5, 17, 10, tzinfo=MOSCOW_TZ),
+    )
+    chat_settings_repository.set_group(123, "ОэУИТм-М05-26-1")
+    chat_settings_repository.set_reminder_minutes(123, [120, 30])
+
+    await notifier_service.send_due_notifications(bot)
+
+    notifier_service.now_factory = lambda: datetime(2026, 10, 5, 18, 40, tzinfo=MOSCOW_TZ)
+    await notifier_service.send_due_notifications(bot)
+
+    assert bot.messages == [
+        (
+            123,
+            (
+                "<b>Напоминание о парах на сегодня</b>\n"
+                "Группа: <b>ОэУИТм-М05-26-1</b>\n"
+                "Дата: 05.10.2026 МСК\n"
+                "Напоминаю за 2 ч.\n\n"
+                "7 пара — 19:10\n"
+                "8 пара — 20:45"
+            ),
+        ),
+        (
+            123,
+            (
+                "<b>Напоминание о парах на сегодня</b>\n"
+                "Группа: <b>ОэУИТм-М05-26-1</b>\n"
+                "Дата: 05.10.2026 МСК\n"
+                "Напоминаю за 30 мин.\n\n"
+                "7 пара — 19:10\n"
+                "8 пара — 20:45"
+            ),
+        ),
+    ]

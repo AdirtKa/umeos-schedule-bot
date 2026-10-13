@@ -4,9 +4,9 @@ from typing import Any
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import Message, ReplyKeyboardMarkup
 
-from src.keyboards import GROUP_BUTTON, TODAY_BUTTON, main_keyboard
+from src.keyboards import GROUP_BUTTON, TODAY_BUTTON, get_main_keyboard
 from src.services.schedule_service import (
     GroupNotSetError,
     ScheduleFetchError,
@@ -23,6 +23,7 @@ async def set_group_handler(
     message: Message,
     command: CommandObject,
     schedule_service: ScheduleService,
+    admin_user_id: int,
 ) -> None:
     group_name = command.args.strip() if command.args else ""
 
@@ -32,13 +33,13 @@ async def set_group_handler(
         if current_group is None:
             await message.answer(
                 "Группа для этого чата еще не задана.\nНапиши: /group НАЗВАНИЕ_ГРУППЫ",
-                reply_markup=main_keyboard,
+                reply_markup=_reply_markup(message, admin_user_id),
             )
             return
 
         await message.answer(
             f"Сейчас сохранена группа: <b>{escape(current_group)}</b>",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
 
@@ -47,20 +48,20 @@ async def set_group_handler(
     except ScheduleNotFoundError:
         await message.answer(
             "Не нашел расписание для этой группы. Проверь название и попробуй еще раз.",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
     except ScheduleFetchError:
         await message.answer(
             "Не получилось получить расписание с umeos.ru. Попробуй повторить чуть позже.",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
 
     await message.answer(
         f"Группа сохранена: <b>{escape(saved_group)}</b>\n"
         "Теперь можно запросить расписание командой /today.",
-        reply_markup=main_keyboard,
+        reply_markup=_reply_markup(message, admin_user_id),
     )
 
 
@@ -68,20 +69,21 @@ async def set_group_handler(
 async def current_group_handler(
     message: Message,
     schedule_service: ScheduleService,
+    admin_user_id: int,
 ) -> None:
     current_group = await schedule_service.get_group(message.chat.id)
 
     if current_group is None:
         await message.answer(
             "Группа для этого чата еще не задана.\nНапиши: /group НАЗВАНИЕ_ГРУППЫ",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
 
     await message.answer(
         f"Сейчас сохранена группа: <b>{escape(current_group)}</b>\n"
         "Поменять можно так: /group НАЗВАНИЕ_ГРУППЫ",
-        reply_markup=main_keyboard,
+        reply_markup=_reply_markup(message, admin_user_id),
     )
 
 
@@ -90,29 +92,33 @@ async def current_group_handler(
 async def today_schedule_handler(
     message: Message,
     schedule_service: ScheduleService,
+    admin_user_id: int,
 ) -> None:
     try:
         today_schedule = await schedule_service.get_today_schedule(message.chat.id)
     except GroupNotSetError:
         await message.answer(
             "Сначала нужно сохранить группу для этого чата.\nНапиши: /group НАЗВАНИЕ_ГРУППЫ",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
     except ScheduleNotFoundError:
         await message.answer(
             "Для сохраненной группы расписание не найдено. Проверь группу через /group.",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
     except ScheduleFetchError:
         await message.answer(
             "Не получилось обновить расписание с umeos.ru. Попробуй повторить чуть позже.",
-            reply_markup=main_keyboard,
+            reply_markup=_reply_markup(message, admin_user_id),
         )
         return
 
-    await message.answer(format_today_schedule(today_schedule), reply_markup=main_keyboard)
+    await message.answer(
+        format_today_schedule(today_schedule),
+        reply_markup=_reply_markup(message, admin_user_id),
+    )
 
 
 def format_today_schedule(today_schedule: TodaySchedule) -> str:
@@ -153,3 +159,8 @@ def _format_course(course: dict[str, Any]) -> str:
 
 def _format_date(value: date) -> str:
     return value.strftime("%d.%m.%Y")
+
+
+def _reply_markup(message: Message, admin_user_id: int) -> ReplyKeyboardMarkup:
+    user_id = message.from_user.id if message.from_user else None
+    return get_main_keyboard(user_id, admin_user_id)

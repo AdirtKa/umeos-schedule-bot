@@ -10,7 +10,7 @@ from src.dependencies import create_dependencies
 from src.handlers import router
 from src.jobs import BackgroundJobs
 from src.logger import setup_logging
-from src.middlewares import AccessLogMiddleware
+from src.middlewares import AccessLogMiddleware, KnownChatMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +26,13 @@ async def main() -> None:
     )
 
     dp = Dispatcher(
+        admin_user_id=settings.admin_user_id,
+        chat_settings_repository=dependencies.chat_settings_repository,
         schedule_service=dependencies.schedule_service,
         notifier_service=dependencies.notifier_service,
+        support_service=dependencies.support_service,
     )
+    dp.update.middleware(KnownChatMiddleware(dependencies.chat_settings_repository))
     dp.update.middleware(AccessLogMiddleware())
     dp.include_router(router)
 

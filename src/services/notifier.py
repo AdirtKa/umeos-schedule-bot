@@ -38,11 +38,47 @@ class NotifierService:
             hours_before,
         )
 
+    async def set_reminder_minutes(
+        self,
+        chat_id: int,
+        reminder_minutes: list[int],
+    ) -> bool:
+        return await asyncio.to_thread(
+            self.chat_settings_repository.set_reminder_minutes,
+            chat_id,
+            reminder_minutes,
+        )
+
+    async def add_reminder_minutes(
+        self,
+        chat_id: int,
+        reminder_minutes: list[int],
+    ) -> bool:
+        return await asyncio.to_thread(
+            self.chat_settings_repository.add_reminder_minutes,
+            chat_id,
+            reminder_minutes,
+        )
+
+    async def remove_reminder_minutes(
+        self,
+        chat_id: int,
+        reminder_minutes: list[int],
+    ) -> bool:
+        return await asyncio.to_thread(
+            self.chat_settings_repository.remove_reminder_minutes,
+            chat_id,
+            reminder_minutes,
+        )
+
     async def disable_reminders(self, chat_id: int) -> bool:
         return await asyncio.to_thread(self.chat_settings_repository.disable_reminders, chat_id)
 
     async def get_reminder_hours(self, chat_id: int) -> int | None:
         return await asyncio.to_thread(self.chat_settings_repository.get_reminder_hours, chat_id)
+
+    async def get_reminder_minutes(self, chat_id: int) -> list[int]:
+        return await asyncio.to_thread(self.chat_settings_repository.get_reminder_minutes, chat_id)
 
     async def run(self, bot: Bot) -> None:
         while True:
@@ -82,7 +118,11 @@ class NotifierService:
         notification_time = self._get_notification_time(today_schedule, chat_settings)
 
         if notification_time is None:
-            await self._mark_reminder_sent(chat_settings.chat_id, target_date)
+            await self._mark_reminder_sent(
+                chat_settings.chat_id,
+                chat_settings.reminder_minutes_before,
+                target_date,
+            )
             return
 
         if now < notification_time:
@@ -91,18 +131,28 @@ class NotifierService:
         try:
             await bot.send_message(
                 chat_id=chat_settings.chat_id,
-                text=format_reminder(today_schedule, chat_settings.reminder_hours_before),
+                text=format_reminder(today_schedule, chat_settings.reminder_minutes_before),
             )
         except Exception:
             logger.exception("Failed to send reminder to chat %s", chat_settings.chat_id)
             return
 
-        await self._mark_reminder_sent(chat_settings.chat_id, target_date)
+        await self._mark_reminder_sent(
+            chat_settings.chat_id,
+            chat_settings.reminder_minutes_before,
+            target_date,
+        )
 
-    async def _mark_reminder_sent(self, chat_id: int, target_date: date) -> None:
+    async def _mark_reminder_sent(
+        self,
+        chat_id: int,
+        reminder_minutes_before: int,
+        target_date: date,
+    ) -> None:
         await asyncio.to_thread(
             self.chat_settings_repository.mark_reminder_sent,
             chat_id,
+            reminder_minutes_before,
             target_date,
         )
 
@@ -122,7 +172,7 @@ class NotifierService:
             tzinfo=MOSCOW_TZ,
         )
 
-        return first_course_datetime - timedelta(hours=chat_settings.reminder_hours_before)
+        return first_course_datetime - timedelta(minutes=chat_settings.reminder_minutes_before)
 
     @staticmethod
     def _moscow_now() -> datetime:
@@ -137,18 +187,36 @@ class NotifierService:
         return now.astimezone(MOSCOW_TZ)
 
 
-def format_reminder(today_schedule: TodaySchedule, hours_before: int) -> str:
+def format_reminder(today_schedule: TodaySchedule, minutes_before: int) -> str:
     group_name = escape(today_schedule.group_name)
     formatted_date = today_schedule.target_date.strftime("%d.%m.%Y")
     starts = _format_course_starts(today_schedule.day)
+    reminder_delta = format_reminder_delta(minutes_before)
 
     return (
         "<b>Напоминание о парах на сегодня</b>\n"
         f"Группа: <b>{group_name}</b>\n"
         f"Дата: {formatted_date} МСК\n"
-        f"Напоминаю за {hours_before} ч.\n\n"
+        f"Напоминаю за {reminder_delta}.\n\n"
         f"{starts}"
     )
+
+
+def format_reminder_delta(minutes_before: int) -> str:
+    if minutes_before == 0:
+        return "0 мин"
+
+    hours = minutes_before // 60
+    minutes = minutes_before % 60
+    parts = []
+
+    if hours:
+        parts.append(f"{hours} ч")
+
+    if minutes:
+        parts.append(f"{minutes} мин")
+
+    return " ".join(parts)
 
 
 def _format_course_starts(day: dict[str, Any] | None) -> str:

@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     bot_token: SecretStr
+    admin_user_id: int = 7742110426
     log_level: str = "INFO"
     data_dir: Path = Path("data")
     db_path: Path | None = None

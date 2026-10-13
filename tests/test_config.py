@@ -8,6 +8,7 @@ def test_settings_defaults(monkeypatch) -> None:
 
     settings = Settings(_env_file=None)
 
+    assert settings.admin_user_id == 7742110426
     assert settings.log_level == "INFO"
     assert settings.data_dir == Path("data")
     assert settings.db_path == Path("data") / "bot.db"
