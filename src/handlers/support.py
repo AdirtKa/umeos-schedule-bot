@@ -4,7 +4,13 @@ import logging
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardMarkup,
+)
 
 from src.keyboards import BROADCAST_BUTTON, SUPPORT_BUTTON, get_main_keyboard
 from src.repositories.chat_settings import ChatSettingsRepository
@@ -13,6 +19,11 @@ from src.services.support import SupportService
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+TICKET_ACTION_PREFIX = "ticket:"
+TICKET_REPLY_PREFIX = f"{TICKET_ACTION_PREFIX}reply:"
+TICKET_CLOSE_PREFIX = f"{TICKET_ACTION_PREFIX}close:"
+TICKET_LIST_ACTION = f"{TICKET_ACTION_PREFIX}list"
 
 
 @router.message(F.text == SUPPORT_BUTTON)
@@ -74,8 +85,106 @@ async def tickets_handler(
     await message.answer(
         "<b>Открытые тикеты</b>\n\n"
         + "\n\n".join(_format_ticket_summary(ticket) for ticket in tickets),
-        reply_markup=_reply_markup(message, admin_user_id),
+        reply_markup=_tickets_inline_keyboard(tickets),
     )
+
+
+@router.callback_query(F.data == TICKET_LIST_ACTION)
+async def ticket_list_callback_handler(
+    callback: CallbackQuery,
+    support_service: SupportService,
+    admin_user_id: int,
+) -> None:
+    if not _is_admin_callback(callback, admin_user_id):
+        await callback.answer("Эта кнопка доступна только администратору.", show_alert=True)
+        return
+
+    tickets = await support_service.get_open_tickets()
+
+    if not tickets:
+        await callback.answer("Открытых тикетов нет.", show_alert=True)
+        return
+
+    if callback.message is not None:
+        await callback.message.answer(
+            "<b>Открытые тикеты</b>\n\n"
+            + "\n\n".join(_format_ticket_summary(ticket) for ticket in tickets),
+            reply_markup=_tickets_inline_keyboard(tickets),
+        )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(TICKET_REPLY_PREFIX))
+async def ticket_reply_callback_handler(
+    callback: CallbackQuery,
+    support_service: SupportService,
+    admin_user_id: int,
+) -> None:
+    if not _is_admin_callback(callback, admin_user_id):
+        await callback.answer("Эта кнопка доступна только администратору.", show_alert=True)
+        return
+
+    user_id = _parse_callback_user_id(callback.data, TICKET_REPLY_PREFIX)
+
+    if user_id is None:
+        await callback.answer("Не понял ID тикета.", show_alert=True)
+        return
+
+    ticket = await support_service.get_ticket(user_id)
+
+    if ticket is None:
+        await callback.answer("Тикет не найден.", show_alert=True)
+        return
+
+    if callback.message is not None:
+        await callback.message.answer(
+            "<b>Ответ на тикет</b>\n\n"
+            f"Пользователь: {escape(ticket.full_name)}\n"
+            f"ID: <code>{ticket.user_id}</code>\n\n"
+            f"Команда для ответа:\n<code>/answer {ticket.user_id} текст ответа</code>"
+        )
+
+    await callback.answer("Шаблон ответа отправлен в чат.")
+
+
+@router.callback_query(F.data.startswith(TICKET_CLOSE_PREFIX))
+async def ticket_close_callback_handler(
+    callback: CallbackQuery,
+    bot: Bot,
+    support_service: SupportService,
+    admin_user_id: int,
+) -> None:
+    if not _is_admin_callback(callback, admin_user_id):
+        await callback.answer("Эта кнопка доступна только администратору.", show_alert=True)
+        return
+
+    user_id = _parse_callback_user_id(callback.data, TICKET_CLOSE_PREFIX)
+
+    if user_id is None:
+        await callback.answer("Не понял ID тикета.", show_alert=True)
+        return
+
+    is_closed = await support_service.close_ticket(user_id)
+
+    if not is_closed:
+        await callback.answer("Тикет не найден.", show_alert=True)
+        return
+
+    await bot.send_message(
+        chat_id=user_id,
+        text="Тикет закрыт. Если понадобится помощь, напиши /support и новый текст обращения.",
+    )
+
+    if callback.message is not None:
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            logger.exception("Failed to remove inline ticket keyboard for %s", user_id)
+
+        await callback.message.answer(f"Тикет {user_id} закрыт.")
+
+    await callback.answer("Тикет закрыт.")
 
 
 @router.message(Command("answer", "reply"))
@@ -259,7 +368,11 @@ async def _notify_admin_about_ticket(
         f"Закрыть: <code>/close_ticket {ticket.user_id}</code>"
     )
 
-    await bot.send_message(chat_id=admin_user_id, text=text)
+    await bot.send_message(
+        chat_id=admin_user_id,
+        text=text,
+        reply_markup=_ticket_inline_keyboard(ticket),
+    )
 
 
 def _format_ticket_summary(ticket: SupportTicket) -> str:
@@ -268,6 +381,53 @@ def _format_ticket_summary(ticket: SupportTicket) -> str:
         f"<code>{ticket.user_id}</code> - {escape(ticket.full_name)} ({escape(username)})\n"
         f"{escape(ticket.last_message)}"
     )
+
+
+def _ticket_inline_keyboard(ticket: SupportTicket) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Ответить",
+                    callback_data=f"{TICKET_REPLY_PREFIX}{ticket.user_id}",
+                ),
+                InlineKeyboardButton(
+                    text="Закрыть",
+                    callback_data=f"{TICKET_CLOSE_PREFIX}{ticket.user_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Профиль",
+                    url=f"tg://user?id={ticket.user_id}",
+                ),
+                InlineKeyboardButton(
+                    text="Все тикеты",
+                    callback_data=TICKET_LIST_ACTION,
+                ),
+            ],
+        ]
+    )
+
+
+def _tickets_inline_keyboard(tickets: list[SupportTicket]) -> InlineKeyboardMarkup:
+    keyboard = []
+
+    for ticket in tickets:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"Ответить {ticket.user_id}",
+                    callback_data=f"{TICKET_REPLY_PREFIX}{ticket.user_id}",
+                ),
+                InlineKeyboardButton(
+                    text=f"Закрыть {ticket.user_id}",
+                    callback_data=f"{TICKET_CLOSE_PREFIX}{ticket.user_id}",
+                ),
+            ]
+        )
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def _parse_admin_targeted_text(args: str | None) -> tuple[int | None, str]:
@@ -297,6 +457,13 @@ def _parse_user_id(value: str | None) -> int | None:
         return None
 
 
+def _parse_callback_user_id(data: str | None, prefix: str) -> int | None:
+    if data is None or not data.startswith(prefix):
+        return None
+
+    return _parse_user_id(data.removeprefix(prefix))
+
+
 async def _answer_admin_only(message: Message, admin_user_id: int) -> None:
     await message.answer(
         "Эта команда доступна только администратору.",
@@ -306,6 +473,10 @@ async def _answer_admin_only(message: Message, admin_user_id: int) -> None:
 
 def _is_admin(message: Message, admin_user_id: int) -> bool:
     return message.from_user is not None and message.from_user.id == admin_user_id
+
+
+def _is_admin_callback(callback: CallbackQuery, admin_user_id: int) -> bool:
+    return callback.from_user.id == admin_user_id
 
 
 def _reply_markup(message: Message, admin_user_id: int) -> ReplyKeyboardMarkup:
